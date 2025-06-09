@@ -2,6 +2,16 @@
 <html>
 <head>
     <meta name="robots" content="noindex, nofollow">
+    <!-- Block ALL indexing -->
+    <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex, nocache">
+    <meta name="googlebot" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
+    <meta name="bingbot" content="noindex, nofollow, noarchive, nosnippet">
+    <meta name="slurp" content="noindex, nofollow, noarchive">
+    <meta http-equiv="x-robots-tag" content="none">
+    
+    <!-- Block AI scrapers -->
+    <meta name="ai" content="noindex, nofollow">
+    <meta name="chatgpt" content="noindex">
     <title>JSON File Archive</title>
     <style>
         body {
@@ -55,6 +65,11 @@
             background: #ccc;
             margin: 20px 0;
         }
+        .file-meta {
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
     </style>
 </head>
 <body>
@@ -73,12 +88,12 @@
             
             const container = document.getElementById('files');
             
-            // First get list of all files in repository
-            fetch(`https://api.github.com/repos/${config.repo}/git/trees/${config.branch}?recursive=1`)
+            // First get list of all files in repository with commit history
+            fetch(`https://api.github.com/repos/${config.repo}/commits?path=&sha=${config.branch}&per_page=100`)
                 .then(response => {
                     if (!response.ok) {
                         // Fallback to CORS proxy if direct access fails
-                        return fetch(`https://corsproxy.io/?${encodeURIComponent(`https://api.github.com/repos/${config.repo}/git/trees/${config.branch}?recursive=1`)}`);
+                        return fetch(`https://corsproxy.io/?${encodeURIComponent(`https://api.github.com/repos/${config.repo}/commits?path=&sha=${config.branch}&per_page=100`)}`);
                     }
                     return response;
                 })
@@ -86,32 +101,57 @@
                     if (!response.ok) throw new Error(`GitHub API error: ${response.status}`);
                     return response.json();
                 })
-                .then(data => {
-                    // Filter for JSON files in root directory
-                    const jsonFiles = data.tree.filter(item => 
-                        item.type === 'blob' && 
-                        item.path.endsWith('.json') &&
-                        !item.path.includes('/')  // Only root directory files
-                    );
+                .then(commits => {
+                    // Get the latest commit that modified each JSON file
+                    const fileModificationMap = new Map();
                     
-                    if (jsonFiles.length === 0) {
+                    // Process commits in reverse chronological order
+                    commits.forEach(commit => {
+                        return fetch(commit.commit.tree.url + '?recursive=1')
+                            .then(response => response.json())
+                            .then(treeData => {
+                                treeData.tree.forEach(item => {
+                                    if (item.type === 'blob' && item.path.endsWith('.json') && !item.path.includes('/')) {
+                                        if (!fileModificationMap.has(item.path)) {
+                                            fileModificationMap.set(item.path, {
+                                                filename: item.path,
+                                                commitDate: new Date(commit.commit.committer.date),
+                                                sha: item.sha
+                                            });
+                                        }
+                                    }
+                                });
+                            });
+                    });
+                    
+                    return Promise.all(commits.map(commit => 
+                        fetch(commit.commit.tree.url + '?recursive=1').then(res => res.json())
+                    ).then(() => {
+                        // Convert map to array and sort by commit date (newest first)
+                        return Array.from(fileModificationMap.values())
+                            .sort((a, b) => b.commitDate - a.commitDate);
+                    });
+                })
+                .then(sortedFiles => {
+                    if (sortedFiles.length === 0) {
                         throw new Error('No JSON files found in root directory');
                     }
                     
-                    container.innerHTML = '<p class="loading">Loading JSON files...</p>';
+                    container.innerHTML = `<p class="loading">Loading ${sortedFiles.length} JSON files...</p>`;
                     
-                    // Load all JSON files
+                    // Load all JSON files in order
                     return Promise.all(
-                        jsonFiles.map(file => 
-                            fetch(`https://raw.githubusercontent.com/${config.repo}/${config.branch}/${file.path}`)
+                        sortedFiles.map(file => 
+                            fetch(`https://raw.githubusercontent.com/${config.repo}/${config.branch}/${file.filename}`)
                                 .then(res => res.text())
                                 .then(content => ({
-                                    filename: file.path,
+                                    filename: file.filename,
                                     content,
+                                    commitDate: file.commitDate,
                                     isJson: true
                                 }))
                                 .catch(e => ({
-                                    filename: file.path,
+                                    filename: file.filename,
                                     error: e.message
                                 }))
                         )
@@ -127,6 +167,13 @@
                         const title = document.createElement('h3');
                         title.textContent = result.filename;
                         fileDiv.appendChild(title);
+                        
+                        if (result.commitDate) {
+                            const meta = document.createElement('div');
+                            meta.className = 'file-meta';
+                            meta.textContent = `Last updated: ${result.commitDate.toLocaleString()}`;
+                            fileDiv.appendChild(meta);
+                        }
                         
                         if (result.error) {
                             const errorDiv = document.createElement('div');
