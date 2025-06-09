@@ -1,17 +1,8 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <!-- Block ALL indexing -->
-<meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex, nocache">
-<meta name="googlebot" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
-<meta name="bingbot" content="noindex, nofollow, noarchive, nosnippet">
-<meta name="slurp" content="noindex, nofollow, noarchive">
-<meta http-equiv="x-robots-tag" content="none">
-
-<!-- Block AI scrapers -->
-<meta name="ai" content="noindex, nofollow">
-<meta name="chatgpt" content="noindex">
-    <title>My asdfadfdf Archive</title>
+    <!-- Your existing meta tags -->
+    <title>My ChatGPT Archive</title>
     <style>
         body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
         h1 { color: #333; }
@@ -21,24 +12,42 @@
     </style>
 </head>
 <body>
-    <h1>My adsfasdfads Conversations</h1>
+    <h1>My ChatGPT Conversations</h1>
     <div id="chats"></div>
 
 <script>
     const container = document.getElementById('chats');
 
-    // Fetch the list of all files in the repo
-    fetch('https://api.github.com/repos/kendiglisa/kendiglisa.github.io/adfasdfasfs/')
-        .then(response => response.json())
+    // CORRECTED GitHub API URL (remove '/adfasdfasfs/' from path)
+    fetch('https://api.github.com/repos/kendiglisa/kendiglisa.github.io/contents/')
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json();
+        })
         .then(files => {
             // Filter only JSON files
             const jsonFiles = files.filter(file => file.name.endsWith('.json'));
             
+            if (jsonFiles.length === 0) {
+                container.innerHTML = "<p>No JSON chat files found in repository.</p>";
+                return;
+            }
+            
             // Load each JSON file
             jsonFiles.forEach(file => {
-                fetch(file.name)
-                    .then(response => response.json())
+                fetch(file.download_url)  // Use download_url instead of file.name
+                    .then(response => {
+                        if (!response.ok) {
+                            console.error(`Failed to load ${file.name}`);
+                            return null;
+                        }
+                        return response.json();
+                    })
                     .then(data => {
+                        if (!data) return;
+                        
                         if (data.conversations) {
                             data.conversations.forEach(chat => {
                                 const chatDiv = document.createElement('div');
@@ -58,10 +67,14 @@
                                 container.appendChild(chatDiv);
                             });
                         }
-                    });
+                    })
+                    .catch(error => console.error(`Error loading ${file.name}:`, error));
             });
         })
-        .catch(error => console.error('Error loading chats:', error));
+        .catch(error => {
+            console.error('Error loading file list:', error);
+            container.innerHTML = `<p>Error loading chats: ${error.message}</p>`;
+        });
 </script>
 </body>
 </html>
