@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta name="robots" content="noindex, nofollow">
-    <title>My File Archive</title>
+    <title>JSON File Archive</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -58,9 +58,9 @@
     </style>
 </head>
 <body>
-    <h1>My File Archive</h1>
+    <h1>Automated JSON Archive</h1>
     <div id="files">
-        <p class="loading">Loading files...</p>
+        <p class="loading">Scanning repository for JSON files...</p>
     </div>
 
     <script>
@@ -68,33 +68,55 @@
             // CONFIGURATION - EDIT THESE VALUES
             const config = {
                 repo: 'kendiglisa/adfasdfasfs',  // Format: username/repository
-                branch: 'main',                   // Branch name (main, master, gh-pages, etc.)
-                files: [                          // List of files to load
-                    'waarchive.json',
-                    'ChatGPT_First_Hinglish.json'
-                    // Add more files as needed
-                ]
+                branch: 'main'                   // Branch name (main, master, gh-pages, etc.)
             };
             
             const container = document.getElementById('files');
-            loadFiles(config.repo, config.branch, config.files);
             
-            function loadFiles(repo, branch, files) {
-                container.innerHTML = '<p class="loading">Loading files...</p>';
-                
-                Promise.all(files.map(file => {
-                    const fileUrl = `https://raw.githubusercontent.com/${repo}/${branch}/${file}`;
-                    return fetch(fileUrl)
-                        .then(response => {
-                            if (!response.ok) throw new Error(`Failed to load ${file}: ${response.status}`);
-                            return response.text().then(text => {
-                                return { file, content: text, isJson: file.endsWith('.json') };
-                            });
-                        })
-                        .catch(error => {
-                            return { file, error: error.message };
-                        });
-                }))
+            // First get list of all files in repository
+            fetch(`https://api.github.com/repos/${config.repo}/git/trees/${config.branch}?recursive=1`)
+                .then(response => {
+                    if (!response.ok) {
+                        // Fallback to CORS proxy if direct access fails
+                        return fetch(`https://corsproxy.io/?${encodeURIComponent(`https://api.github.com/repos/${config.repo}/git/trees/${config.branch}?recursive=1`)}`);
+                    }
+                    return response;
+                })
+                .then(response => {
+                    if (!response.ok) throw new Error(`GitHub API error: ${response.status}`);
+                    return response.json();
+                })
+                .then(data => {
+                    // Filter for JSON files in root directory
+                    const jsonFiles = data.tree.filter(item => 
+                        item.type === 'blob' && 
+                        item.path.endsWith('.json') &&
+                        !item.path.includes('/')  // Only root directory files
+                    );
+                    
+                    if (jsonFiles.length === 0) {
+                        throw new Error('No JSON files found in root directory');
+                    }
+                    
+                    container.innerHTML = '<p class="loading">Loading JSON files...</p>';
+                    
+                    // Load all JSON files
+                    return Promise.all(
+                        jsonFiles.map(file => 
+                            fetch(`https://raw.githubusercontent.com/${config.repo}/${config.branch}/${file.path}`)
+                                .then(res => res.text())
+                                .then(content => ({
+                                    filename: file.path,
+                                    content,
+                                    isJson: true
+                                }))
+                                .catch(e => ({
+                                    filename: file.path,
+                                    error: e.message
+                                }))
+                        )
+                    );
+                })
                 .then(results => {
                     container.innerHTML = '';
                     
@@ -103,7 +125,7 @@
                         fileDiv.className = 'file-container';
                         
                         const title = document.createElement('h3');
-                        title.textContent = result.file;
+                        title.textContent = result.filename;
                         fileDiv.appendChild(title);
                         
                         if (result.error) {
@@ -111,7 +133,7 @@
                             errorDiv.className = 'error';
                             errorDiv.textContent = `Error: ${result.error}`;
                             fileDiv.appendChild(errorDiv);
-                        } else if (result.isJson) {
+                        } else {
                             try {
                                 const jsonData = JSON.parse(result.content);
                                 if (jsonData.conversations) {
@@ -151,11 +173,6 @@
                                 pre.textContent = result.content;
                                 fileDiv.appendChild(pre);
                             }
-                        } else {
-                            // Plain text file
-                            const pre = document.createElement('pre');
-                            pre.textContent = result.content;
-                            fileDiv.appendChild(pre);
                         }
                         
                         container.appendChild(fileDiv);
@@ -169,9 +186,8 @@
                     });
                 })
                 .catch(error => {
-                    showError('Failed to load files', error.message);
+                    showError('Failed to load JSON files', error.message);
                 });
-            }
             
             function showError(message, details = '') {
                 container.innerHTML = `
@@ -181,9 +197,11 @@
                         <p>Verify that:</p>
                         <ul>
                             <li>Your repository is public</li>
-                            <li>Files exist in the specified branch</li>
-                            <li>File names are correct</li>
+                            <li>JSON files exist in the root directory</li>
+                            <li>GitHub API isn't rate limiting you</li>
                         </ul>
+                        <p>Try refreshing the page or check the repository at:<br>
+                        <a href="https://github.com/${config.repo}" target="_blank">https://github.com/${config.repo}</a></p>
                     </div>
                 `;
             }
