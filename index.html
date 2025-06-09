@@ -55,6 +55,11 @@
             background: #ccc;
             margin: 20px 0;
         }
+        .file-meta {
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
     </style>
 </head>
 <body>
@@ -73,12 +78,12 @@
             
             const container = document.getElementById('files');
             
-            // First get list of all files in repository
-            fetch(`https://api.github.com/repos/${config.repo}/git/trees/${config.branch}?recursive=1`)
+            // First get the list of files in the root directory
+            fetch(`https://api.github.com/repos/${config.repo}/contents?ref=${config.branch}`)
                 .then(response => {
                     if (!response.ok) {
                         // Fallback to CORS proxy if direct access fails
-                        return fetch(`https://corsproxy.io/?${encodeURIComponent(`https://api.github.com/repos/${config.repo}/git/trees/${config.branch}?recursive=1`)}`);
+                        return fetch(`https://corsproxy.io/?${encodeURIComponent(`https://api.github.com/repos/${config.repo}/contents?ref=${config.branch}`)}`);
                     }
                     return response;
                 })
@@ -86,32 +91,48 @@
                     if (!response.ok) throw new Error(`GitHub API error: ${response.status}`);
                     return response.json();
                 })
-                .then(data => {
+                .then(files => {
                     // Filter for JSON files in root directory
-                    const jsonFiles = data.tree.filter(item => 
-                        item.type === 'blob' && 
-                        item.path.endsWith('.json') &&
-                        !item.path.includes('/')  // Only root directory files
+                    const jsonFiles = files.filter(file => 
+                        file.type === 'file' && 
+                        file.name.endsWith('.json')
                     );
                     
                     if (jsonFiles.length === 0) {
                         throw new Error('No JSON files found in root directory');
                     }
                     
-                    container.innerHTML = '<p class="loading">Loading JSON files...</p>';
-                    
-                    // Load all JSON files
+                    // Sort files by commit date (newest first)
                     return Promise.all(
                         jsonFiles.map(file => 
-                            fetch(`https://raw.githubusercontent.com/${config.repo}/${config.branch}/${file.path}`)
+                            fetch(file.git_url)
+                                .then(res => res.json())
+                                .then(details => ({
+                                    filename: file.name,
+                                    download_url: file.download_url,
+                                    last_modified: new Date(details.committer.date)
+                                }))
+                        )
+                    ).then(filesWithDates => 
+                        filesWithDates.sort((a, b) => b.last_modified - a.last_modified)
+                    );
+                })
+                .then(sortedFiles => {
+                    container.innerHTML = `<p class="loading">Loading ${sortedFiles.length} JSON files...</p>`;
+                    
+                    // Load all JSON files in order
+                    return Promise.all(
+                        sortedFiles.map(file => 
+                            fetch(file.download_url)
                                 .then(res => res.text())
                                 .then(content => ({
-                                    filename: file.path,
+                                    filename: file.filename,
                                     content,
+                                    last_modified: file.last_modified,
                                     isJson: true
                                 }))
                                 .catch(e => ({
-                                    filename: file.path,
+                                    filename: file.filename,
                                     error: e.message
                                 }))
                         )
@@ -127,6 +148,13 @@
                         const title = document.createElement('h3');
                         title.textContent = result.filename;
                         fileDiv.appendChild(title);
+                        
+                        if (result.last_modified) {
+                            const meta = document.createElement('div');
+                            meta.className = 'file-meta';
+                            meta.textContent = `Last updated: ${result.last_modified.toLocaleString()}`;
+                            fileDiv.appendChild(meta);
+                        }
                         
                         if (result.error) {
                             const errorDiv = document.createElement('div');
