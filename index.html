@@ -1,10 +1,8 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <!-- Block indexing from search engines -->
     <meta name="robots" content="noindex, nofollow">
-    <meta name="googlebot" content="noindex">
-    <title>My ChatGPT Archive</title>
+    <title>My File Archive</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -18,12 +16,15 @@
             border-bottom: 2px solid #eee;
             padding-bottom: 10px;
         }
-        .chat {
+        .file-container {
             border: 1px solid #ddd;
             padding: 15px;
             margin-bottom: 20px;
             border-radius: 5px;
             background-color: #f9f9f9;
+        }
+        .json-chat {
+            margin-bottom: 15px;
         }
         .user {
             color: #0066cc;
@@ -42,101 +43,153 @@
             color: #666;
             font-style: italic;
         }
+        pre {
+            white-space: pre-wrap;
+            background: #f0f0f0;
+            padding: 10px;
+            border-radius: 3px;
+        }
     </style>
 </head>
 <body>
-    <h1>My ChatGPT Conversations</h1>
-    <div id="chats">
-        <p class="loading">Loading conversations...</p>
+    <h1>My File Archive</h1>
+    
+    <!-- Configuration Section -->
+    <div id="config" style="margin-bottom: 20px; padding: 15px; background: #f0f8ff; border-radius: 5px;">
+        <h2>Configuration</h2>
+        <div>
+            <label for="repoInput">GitHub Repository (owner/repo):</label><br>
+            <input type="text" id="repoInput" value="kendiglisa/adfasdfasfs" style="width: 100%; padding: 5px; margin-bottom: 10px;">
+        </div>
+        <div>
+            <label for="branchInput">Branch:</label><br>
+            <input type="text" id="branchInput" value="main" style="width: 100%; padding: 5px; margin-bottom: 10px;">
+        </div>
+        <div>
+            <label for="filesInput">Files to load (comma separated):</label><br>
+            <input type="text" id="filesInput" value="waarchive.json,notes.txt" style="width: 100%; padding: 5px; margin-bottom: 10px;">
+        </div>
+        <button id="loadButton" style="padding: 8px 15px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer;">Load Files</button>
+    </div>
+    
+    <div id="files">
+        <p class="loading">Configure and click "Load Files" to display content.</p>
     </div>
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            const container = document.getElementById('chats');
+            const container = document.getElementById('files');
+            const loadButton = document.getElementById('loadButton');
             
-            // First try direct GitHub API access
-            fetch('https://api.github.com/repos/kendiglisa/kendiglisa.github.io/contents/')
-                .then(response => {
-                    if (!response.ok) {
-                        // If direct access fails, use a CORS proxy
-                        return fetch(`https://corsproxy.io/?${encodeURIComponent('https://api.github.com/repos/kendiglisa/kendiglisa.github.io/contents/')}`);
-                    }
-                    return response;
-                })
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error('Failed to access repository');
-                    }
-                    return response.json();
-                })
-                .then(files => {
-                    // Filter for JSON files
-                    const jsonFiles = files.filter(file => 
-                        file.name.endsWith('.json') && 
-                        file.type === 'file'
-                    );
-                    
-                    if (jsonFiles.length === 0) {
-                        throw new Error('No JSON files found in repository');
-                    }
-                    
-                    // Clear loading message
+            loadButton.addEventListener('click', function() {
+                const repo = document.getElementById('repoInput').value.trim();
+                const branch = document.getElementById('branchInput').value.trim();
+                const filesInput = document.getElementById('filesInput').value.trim();
+                
+                if (!repo || !branch || !filesInput) {
+                    showError('Please fill in all fields');
+                    return;
+                }
+                
+                const filesToLoad = filesInput.split(',').map(f => f.trim()).filter(f => f);
+                loadFiles(repo, branch, filesToLoad);
+            });
+            
+            function loadFiles(repo, branch, files) {
+                container.innerHTML = '<p class="loading">Loading files...</p>';
+                
+                Promise.all(files.map(file => {
+                    const fileUrl = `https://raw.githubusercontent.com/${repo}/${branch}/${file}`;
+                    return fetch(fileUrl)
+                        .then(response => {
+                            if (!response.ok) throw new Error(`Failed to load ${file}: ${response.status}`);
+                            return response.text().then(text => {
+                                return { file, content: text, isJson: file.endsWith('.json') };
+                            });
+                        })
+                        .catch(error => {
+                            return { file, error: error.message };
+                        });
+                }))
+                .then(results => {
                     container.innerHTML = '';
                     
-                    // Load each JSON file
-                    return Promise.all(
-                        jsonFiles.map(file => 
-                            fetch(file.download_url)
-                                .then(res => res.json())
-                                .then(data => ({ file, data }))
-                                .catch(e => {
-                                    console.error(`Error loading ${file.name}:`, e);
-                                    return null;
-                                })
-                        )
-                    );
-                })
-                .then(results => {
-                    if (!results) return;
-                    
-                    // Process all successful loads
-                    results.filter(Boolean).forEach(({ file, data }) => {
-                        if (data && data.conversations) {
-                            data.conversations.forEach(chat => {
-                                const chatDiv = document.createElement('div');
-                                chatDiv.className = 'chat';
+                    results.forEach(result => {
+                        const fileDiv = document.createElement('div');
+                        fileDiv.className = 'file-container';
+                        
+                        const title = document.createElement('h3');
+                        title.textContent = result.file;
+                        fileDiv.appendChild(title);
+                        
+                        if (result.error) {
+                            const errorDiv = document.createElement('div');
+                            errorDiv.className = 'error';
+                            errorDiv.textContent = `Error: ${result.error}`;
+                            fileDiv.appendChild(errorDiv);
+                        } else if (result.isJson) {
+                            try {
+                                const jsonData = JSON.parse(result.content);
+                                if (jsonData.conversations) {
+                                    jsonData.conversations.forEach(conversation => {
+                                        const convDiv = document.createElement('div');
+                                        convDiv.className = 'json-chat';
+                                        
+                                        if (conversation.topic || conversation.date) {
+                                            const convTitle = document.createElement('h4');
+                                            convTitle.textContent = `${conversation.topic || 'Conversation'} • ${conversation.date || 'No date'}`;
+                                            convDiv.appendChild(convTitle);
+                                        }
+                                        
+                                        if (conversation.messages) {
+                                            conversation.messages.forEach(message => {
+                                                const msgDiv = document.createElement('div');
+                                                msgDiv.className = message.role;
+                                                msgDiv.innerHTML = `<strong>${message.role}:</strong> ${message.content}`;
+                                                convDiv.appendChild(msgDiv);
+                                            });
+                                        }
+                                        
+                                        fileDiv.appendChild(convDiv);
+                                    });
+                                } else {
+                                    const pre = document.createElement('pre');
+                                    pre.textContent = JSON.stringify(jsonData, null, 2);
+                                    fileDiv.appendChild(pre);
+                                }
+                            } catch (e) {
+                                const errorDiv = document.createElement('div');
+                                errorDiv.className = 'error';
+                                errorDiv.textContent = `Failed to parse JSON: ${e.message}`;
+                                fileDiv.appendChild(errorDiv);
                                 
-                                const title = document.createElement('h3');
-                                title.textContent = `${chat.topic || 'Chat'} • ${chat.date || 'No date'} • ${file.name}`;
-                                chatDiv.appendChild(title);
-                                
-                                chat.messages.forEach(msg => {
-                                    const msgDiv = document.createElement('div');
-                                    msgDiv.className = msg.role;
-                                    msgDiv.innerHTML = `<strong>${msg.role}:</strong> ${msg.content}`;
-                                    chatDiv.appendChild(msgDiv);
-                                });
-                                
-                                container.appendChild(chatDiv);
-                            });
+                                const pre = document.createElement('pre');
+                                pre.textContent = result.content;
+                                fileDiv.appendChild(pre);
+                            }
+                        } else {
+                            // Plain text file
+                            const pre = document.createElement('pre');
+                            pre.textContent = result.content;
+                            fileDiv.appendChild(pre);
                         }
+                        
+                        container.appendChild(fileDiv);
                     });
                 })
                 .catch(error => {
-                    console.error('Error:', error);
-                    container.innerHTML = `
-                        <div class="error">
-                            <p><strong>Error loading chats:</strong> ${error.message}</p>
-                            <p>Please verify:</p>
-                            <ul>
-                                <li>Your repository is public</li>
-                                <li>JSON files exist in the root directory</li>
-                                <li>Files have .json extension</li>
-                            </ul>
-                            <p>Refresh the page to try again.</p>
-                        </div>
-                    `;
+                    showError('Failed to load files', error.message);
                 });
+            }
+            
+            function showError(message, details = '') {
+                container.innerHTML = `
+                    <div class="error">
+                        <p><strong>Error:</strong> ${message}</p>
+                        ${details ? `<p>${details}</p>` : ''}
+                    </div>
+                `;
+            }
         });
     </script>
 </body>
