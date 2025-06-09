@@ -1,60 +1,113 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <!-- Your existing meta tags -->
+    <!-- Block indexing from search engines -->
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="googlebot" content="noindex">
     <title>My ChatGPT Archive</title>
     <style>
-        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
-        h1 { color: #333; }
-        .chat { border: 1px solid #ddd; padding: 15px; margin-bottom: 20px; border-radius: 5px; }
-        .user { color: #0066cc; font-weight: bold; }
-        .assistant { color: #009933; }
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        h1 {
+            color: #333;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+        }
+        .chat {
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+        .user {
+            color: #0066cc;
+            font-weight: bold;
+        }
+        .assistant {
+            color: #009933;
+        }
+        .error {
+            color: #cc0000;
+            padding: 15px;
+            border: 1px solid #ffcccc;
+            background-color: #ffeeee;
+        }
+        .loading {
+            color: #666;
+            font-style: italic;
+        }
     </style>
 </head>
 <body>
     <h1>My ChatGPT Conversations</h1>
-    <div id="chats"></div>
+    <div id="chats">
+        <p class="loading">Loading conversations...</p>
+    </div>
 
-<script>
-    const container = document.getElementById('chats');
-
-    // CORRECTED GitHub API URL (remove '/adfasdfasfs/' from path)
-    fetch('https://api.github.com/repos/kendiglisa/kendiglisa.github.io/contents/')
-        .then(response => {
-            if (!response.ok) {
-                throw new Error('Network response was not ok');
-            }
-            return response.json();
-        })
-        .then(files => {
-            // Filter only JSON files
-            const jsonFiles = files.filter(file => file.name.endsWith('.json'));
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const container = document.getElementById('chats');
             
-            if (jsonFiles.length === 0) {
-                container.innerHTML = "<p>No JSON chat files found in repository.</p>";
-                return;
-            }
-            
-            // Load each JSON file
-            jsonFiles.forEach(file => {
-                fetch(file.download_url)  // Use download_url instead of file.name
-                    .then(response => {
-                        if (!response.ok) {
-                            console.error(`Failed to load ${file.name}`);
-                            return null;
-                        }
-                        return response.json();
-                    })
-                    .then(data => {
-                        if (!data) return;
-                        
-                        if (data.conversations) {
+            // First try direct GitHub API access
+            fetch('https://api.github.com/repos/kendiglisa/kendiglisa.github.io/contents/')
+                .then(response => {
+                    if (!response.ok) {
+                        // If direct access fails, use a CORS proxy
+                        return fetch(`https://corsproxy.io/?${encodeURIComponent('https://api.github.com/repos/kendiglisa/kendiglisa.github.io/contents/')}`);
+                    }
+                    return response;
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Failed to access repository');
+                    }
+                    return response.json();
+                })
+                .then(files => {
+                    // Filter for JSON files
+                    const jsonFiles = files.filter(file => 
+                        file.name.endsWith('.json') && 
+                        file.type === 'file'
+                    );
+                    
+                    if (jsonFiles.length === 0) {
+                        throw new Error('No JSON files found in repository');
+                    }
+                    
+                    // Clear loading message
+                    container.innerHTML = '';
+                    
+                    // Load each JSON file
+                    return Promise.all(
+                        jsonFiles.map(file => 
+                            fetch(file.download_url)
+                                .then(res => res.json())
+                                .then(data => ({ file, data }))
+                                .catch(e => {
+                                    console.error(`Error loading ${file.name}:`, e);
+                                    return null;
+                                })
+                        )
+                    );
+                })
+                .then(results => {
+                    if (!results) return;
+                    
+                    // Process all successful loads
+                    results.filter(Boolean).forEach(({ file, data }) => {
+                        if (data && data.conversations) {
                             data.conversations.forEach(chat => {
                                 const chatDiv = document.createElement('div');
                                 chatDiv.className = 'chat';
                                 
                                 const title = document.createElement('h3');
-                                title.textContent = `${chat.topic || 'Chat'} - ${chat.date || 'No date'} (${file.name})`;
+                                title.textContent = `${chat.topic || 'Chat'} • ${chat.date || 'No date'} • ${file.name}`;
                                 chatDiv.appendChild(title);
                                 
                                 chat.messages.forEach(msg => {
@@ -67,14 +120,24 @@
                                 container.appendChild(chatDiv);
                             });
                         }
-                    })
-                    .catch(error => console.error(`Error loading ${file.name}:`, error));
-            });
-        })
-        .catch(error => {
-            console.error('Error loading file list:', error);
-            container.innerHTML = `<p>Error loading chats: ${error.message}</p>`;
+                    });
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    container.innerHTML = `
+                        <div class="error">
+                            <p><strong>Error loading chats:</strong> ${error.message}</p>
+                            <p>Please verify:</p>
+                            <ul>
+                                <li>Your repository is public</li>
+                                <li>JSON files exist in the root directory</li>
+                                <li>Files have .json extension</li>
+                            </ul>
+                            <p>Refresh the page to try again.</p>
+                        </div>
+                    `;
+                });
         });
-</script>
+    </script>
 </body>
 </html>
