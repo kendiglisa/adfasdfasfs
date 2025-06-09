@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>My ChatGPT Archive</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        h1 { color: #333; }
+        .chat { border: 1px solid #ddd; padding: 15px; margin-bottom: 20px; border-radius: 5px; }
+        .user { color: #0066cc; font-weight: bold; }
+        .assistant { color: #009933; }
+    </style>
+</head>
+<body>
+    <h1>My ChatGPT Conversations</h1>
+    <div id="chats"></div>
+
+<script>
+    const container = document.getElementById('chats');
+
+    // Fetch the list of all files in the repo
+    fetch('https://api.github.com/repos/kendiglisa/kendiglisa.github.io/contents/')
+        .then(response => response.json())
+        .then(files => {
+            // Filter only JSON files
+            const jsonFiles = files.filter(file => file.name.endsWith('.json'));
+            
+            // Load each JSON file
+            jsonFiles.forEach(file => {
+                fetch(file.name)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.conversations) {
+                            data.conversations.forEach(chat => {
+                                const chatDiv = document.createElement('div');
+                                chatDiv.className = 'chat';
+                                
+                                const title = document.createElement('h3');
+                                title.textContent = `${chat.topic || 'Chat'} - ${chat.date || 'No date'} (${file.name})`;
+                                chatDiv.appendChild(title);
+                                
+                                chat.messages.forEach(msg => {
+                                    const msgDiv = document.createElement('div');
+                                    msgDiv.className = msg.role;
+                                    msgDiv.innerHTML = `<strong>${msg.role}:</strong> ${msg.content}`;
+                                    chatDiv.appendChild(msgDiv);
+                                });
+                                
+                                container.appendChild(chatDiv);
+                            });
+                        }
+                    });
+            });
+        })
+        .catch(error => console.error('Error loading chats:', error));
+</script>
+</body>
+</html>
